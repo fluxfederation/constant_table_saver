@@ -9,7 +9,7 @@ module ConstantTableSaver
       self.constant_table_options = options
 
       @constant_record_methods = nil
-      
+
       if ActiveRecord::VERSION::MAJOR == 4
         extend ActiveRecord4ClassMethods
       elsif ActiveRecord::VERSION::MAJOR == 5 && (ActiveRecord::VERSION::MINOR == 0 || ActiveRecord::VERSION::MINOR == 1)
@@ -18,8 +18,15 @@ module ConstantTableSaver
         extend ActiveRecord52ClassMethods
       end
       extend ClassMethods
-      extend NameClassMethods if constant_table_options[:name]
-      
+
+      if constant_table_options[:name]
+        if ActiveRecord::VERSION::MAJOR == 7 && ActiveRecord::VERSION::MINOR >= 1
+          extend ActiveRecord71NameClassMethods
+        else
+          extend NameClassMethods
+        end
+      end
+
       klass = defined?(ActiveRecord::FixtureSet) ? ActiveRecord::FixtureSet : ActiveRecord::Fixtures
       class <<klass
         # normally, create_fixtures method gets called exactly once - but unfortunately, it
@@ -43,7 +50,7 @@ module ConstantTableSaver
     klasses = ActiveRecord::Base.respond_to?(:descendants) ? ActiveRecord::Base.descendants : ActiveRecord::Base.send(:subclasses)
     klasses.each {|klass| klass.reset_constant_record_cache! if klass.respond_to?(:reset_constant_record_cache!)}
   end
-  
+
   module ClassMethods
     # Resets the cached records.  Remember that this only affects this process, so while this
     # is useful for running tests, it's unlikely that you can use this in production - you
@@ -208,11 +215,36 @@ module ConstantTableSaver
         method_name.to_sym
       end.compact.uniq
     end
-    
+
     def respond_to?(method_id, include_private = false)
       super || (@constant_record_methods.nil? && @attribute_methods_generated && define_named_record_methods && super)
     end
-    
+
+    def method_missing(method_id, *arguments, &block)
+      if @constant_record_methods.nil?
+        define_named_record_methods
+        send(method_id, *arguments, &block) # retry
+      else
+        super
+      end
+    end
+  end
+
+  module ActiveRecord71NameClassMethods
+    def define_named_record_methods
+      @constant_record_methods = [] # dummy so respond_to? & method_missing don't call us again if reading an attribute causes another method_missing
+      @constant_record_methods = all.collect do |record|
+        method_name = "#{constant_table_options[:name_prefix]}#{record[constant_table_options[:name]].downcase.gsub(/\W+/, '_')}#{constant_table_options[:name_suffix]}"
+        next if method_name.blank?
+        (class << self; self; end;).instance_eval { define_method(method_name) { record } }
+        method_name.to_sym
+      end.compact.uniq
+    end
+
+    def respond_to?(method_id, include_private = false)
+      super || (@constant_record_methods.nil? && @attribute_methods_generated && @alias_attributes_mass_generated && define_named_record_methods && super)
+    end
+
     def method_missing(method_id, *arguments, &block)
       if @constant_record_methods.nil?
         define_named_record_methods
