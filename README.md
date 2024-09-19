@@ -80,9 +80,6 @@ Means you will also have methods returning those records:
 Optionally, you can specify a `:name_prefix` and/or `:name_suffix`.
 
 
-Thanks
+Testing
 ======
-
-* Marc Shaw (@marcshaw)
-
-Copyright (c) 2010-2020 Will Bryant, Sekuda Ltd, released under the MIT license
+This repo includes tests, but they are outdated. Test locally with Core using the :path parameter in your core gemfile.
